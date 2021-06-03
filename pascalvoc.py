@@ -25,6 +25,10 @@ from utils import BBFormat
 
 
 # Validate formats
+from lib.Evaluator import Evaluator
+from lib.utils import MethodAveragePrecision, CoordinatesType
+
+
 def ValidateFormats(argFormat, argName, errors):
     if argFormat == 'xywh':
         return BBFormat.XYWH
@@ -279,9 +283,7 @@ else:
     detFolder = os.path.join(currentPath, 'detections')
     if os.path.isdir(detFolder) is False:
         errors.append('folder %s not found' % detFolder)
-if args.savePath is not None:
-    savePath = ValidatePaths(args.savePath, '-sp/--savepath', errors)
-else:
+if args.savePath is None:
     savePath = os.path.join(currentPath, 'results')
 # Validate savePath
 # If error, show error messages
@@ -293,74 +295,88 @@ if len(errors) is not 0:
     sys.exit()
 
 # Create directory to save results
-shutil.rmtree(savePath, ignore_errors=True)  # Clear folder
-os.makedirs(savePath)
+# shutil.rmtree(savePath, ignore_errors=True)  # Clear folder
+# os.makedirs(savePath)
 # Show plot during execution
 showPlot = args.showPlot
 
-# print('iouThreshold= %f' % iouThreshold)
-# print('savePath = %s' % savePath)
-# print('gtFormat = %s' % gtFormat)
-# print('detFormat = %s' % detFormat)
-# print('gtFolder = %s' % gtFolder)
-# print('detFolder = %s' % detFolder)
-# print('gtCoordType = %s' % gtCoordType)
-# print('detCoordType = %s' % detCoordType)
-# print('showPlot %s' % showPlot)
-
+epoch_list = os.listdir(detFolder)
+epoch_list.sort()
+TP_list = []
+FP_list = []
+AP_list = []
+for epoch in epoch_list:
+    if ".DS_Store" in epoch:
+        continue
+    savePath = os.path.join(args.savePath, epoch)
+    if not os.path.exists(savePath):
+        os.makedirs(savePath)
 # Get groundtruth boxes
-allBoundingBoxes, allClasses = getBoundingBoxes(
-    gtFolder, True, gtFormat, gtCoordType, imgSize=imgSize)
-# Get detected boxes
-allBoundingBoxes, allClasses = getBoundingBoxes(
-    detFolder, False, detFormat, detCoordType, allBoundingBoxes, allClasses, imgSize=imgSize)
-allClasses.sort()
+    allBoundingBoxes, allClasses = getBoundingBoxes(
+        gtFolder, True, gtFormat, gtCoordType, imgSize=imgSize)
+    # Get detected boxes
 
-evaluator = Evaluator()
-acc_AP = 0
-validClasses = 0
+    print(os.path.join(detFolder, epoch))
+    allBoundingBoxes, allClasses = getBoundingBoxes(
+        os.path.join(detFolder, epoch), False, detFormat, detCoordType, allBoundingBoxes, allClasses, imgSize=imgSize)
+    allClasses.sort()
 
-# Plot Precision x Recall curve
-detections = evaluator.PlotPrecisionRecallCurve(
-    allBoundingBoxes,  # Object containing all bounding boxes (ground truths and detections)
-    IOUThreshold=iouThreshold,  # IOU threshold
-    method=MethodAveragePrecision.EveryPointInterpolation,
-    showAP=True,  # Show Average Precision in the title of the plot
-    showInterpolatedPrecision=False,  # Don't plot the interpolated precision curve
-    savePath=savePath,
-    showGraphic=showPlot)
+    evaluator = Evaluator()
+    acc_AP = 0
+    validClasses = 0
 
-f = open(os.path.join(savePath, 'results.txt'), 'w')
-f.write('Object Detection Metrics\n')
-f.write('https://github.com/rafaelpadilla/Object-Detection-Metrics\n\n\n')
-f.write('Average Precision (AP), Precision and Recall per class:')
+    # Plot Precision x Recall curve
+    detections = evaluator.PlotPrecisionRecallCurve(
+        allBoundingBoxes,  # Object containing all bounding boxes (ground truths and detections)
+        IOUThreshold=iouThreshold,  # IOU threshold
+        method=MethodAveragePrecision.EveryPointInterpolation,
+        showAP=True,  # Show Average Precision in the title of the plot
+        showInterpolatedPrecision=False,  # Don't plot the interpolated precision curve
+        savePath=savePath,
+        showGraphic=False)
 
-# each detection is a class
-for metricsPerClass in detections:
+    f = open(os.path.join(savePath, 'results.txt'), 'w')
+    f.write('Object Detection Metrics\n')
+    f.write('https://github.com/rafaelpadilla/Object-Detection-Metrics\n\n\n')
+    f.write('Average Precision (AP), Precision and Recall per class:')
 
-    # Get metric values per each class
-    cl = metricsPerClass['class']
-    ap = metricsPerClass['AP']
-    precision = metricsPerClass['precision']
-    recall = metricsPerClass['recall']
-    totalPositives = metricsPerClass['total positives']
-    total_TP = metricsPerClass['total TP']
-    total_FP = metricsPerClass['total FP']
+    # each detection is a class
+    for metricsPerClass in detections:
 
-    if totalPositives > 0:
-        validClasses = validClasses + 1
-        acc_AP = acc_AP + ap
-        prec = ['%.2f' % p for p in precision]
-        rec = ['%.2f' % r for r in recall]
-        ap_str = "{0:.2f}%".format(ap * 100)
-        # ap_str = "{0:.4f}%".format(ap * 100)
-        print('AP: %s (%s)' % (ap_str, cl))
-        f.write('\n\nClass: %s' % cl)
-        f.write('\nAP: %s' % ap_str)
-        f.write('\nPrecision: %s' % prec)
-        f.write('\nRecall: %s' % rec)
+        # Get metric values per each class
+        cl = metricsPerClass['class']
+        ap = metricsPerClass['AP']
+        precision = metricsPerClass['precision']
+        recall = metricsPerClass['recall']
+        totalPositives = metricsPerClass['total positives']
+        total_TP = metricsPerClass['total TP']
+        total_FP = metricsPerClass['total FP']
 
-mAP = acc_AP / validClasses
-mAP_str = "{0:.2f}%".format(mAP * 100)
-print('mAP: %s' % mAP_str)
-f.write('\n\n\nmAP: %s' % mAP_str)
+        if totalPositives > 0:
+            validClasses = validClasses + 1
+            acc_AP = acc_AP + ap
+            prec = ['%.2f' % p for p in precision]
+            rec = ['%.2f' % r for r in recall]
+            ap_str = "{0:.2f}%".format(ap * 100)
+            # ap_str = "{0:.4f}%".format(ap * 100)
+            print('AP: %s (%s)' % (ap_str, cl))
+            f.write('\n\nClass: %s' % cl)
+            f.write('\nAP: %s' % ap_str)
+            f.write('\nPrecision: %s' % prec)
+            f.write('\nRecall: %s' % rec)
+
+    mAP = acc_AP / validClasses
+    mAP_str = "{0:.2f}%".format(mAP * 100)
+    print('mAP: %s' % mAP_str)
+    f.write('\n\n\nmAP: %s' % mAP_str)
+
+    AP_list.append(round(mAP, 4))
+    TP_list.append(total_TP)
+    FP_list.append(total_FP)
+
+with open(os.path.join(args.savePath, "res.txt"), 'a') as file:
+    file.write("AP: {}\n".format(AP_list))
+    file.write("TP: {}\n".format(TP_list))
+    file.write("FP: {}\n".format(FP_list))
+    file.write("Epoch: {}\n".format(epoch_list))
+
